@@ -1,7 +1,7 @@
 pollutantmean <- function(directory, pollutant, id = 1:332) {
         
         # set parent directory
-        setwd("C:/Users/user/Desktop/datasciencecoursera/course2")
+        setwd("C:/Users/user/Desktop/datasciencecoursera/course2/ProgrammingAssignment1")
         
         # obtain list of sensor files in specdata directory
         all_files <- list.files(directory)

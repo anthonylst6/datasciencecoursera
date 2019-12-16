@@ -1,0 +1,10 @@
+NEI <- readRDS("summarySCC_PM25.rds")
+SCC <- readRDS("Source_Classification_Code.rds")
+index <- grep("Mobile(.*)Vehicles", SCC$EI.Sector)
+scc_motor <- SCC$SCC[index]
+balti_motor <- subset(NEI, SCC %in% scc_motor & fips == "24510")
+totals_motor <- with(balti_motor, tapply(Emissions, year, sum))
+png(file = "plot5.png")
+plot(names(totals_motor), totals_motor, xlab = "Year", ylab = "PM2.5 emissions (tons)", main = "PM2.5 emissions from motor vehicles in Baltimore (1999 - 2008)", pch = 19)
+lines(names(totals_motor), totals_motor)
+dev.off()

@@ -1,0 +1,10 @@
+NEI <- readRDS("summarySCC_PM25.rds")
+SCC <- readRDS("Source_Classification_Code.rds")
+index <- grep("Fuel Comb(.*)Coal", SCC$EI.Sector)
+scc_coal <- SCC$SCC[index]
+us_coal <- subset(NEI, SCC %in% scc_coal)
+totals_coal <- with(us_coal, tapply(Emissions, year, sum))
+png(file = "plot4.png")
+plot(names(totals_coal), totals_coal, xlab = "Year", ylab = "PM2.5 emissions (tons)", main = "PM2.5 emissions from coal combustion in the US (1999 - 2008)", pch = 19)
+lines(names(totals_coal), totals_coal)
+dev.off()

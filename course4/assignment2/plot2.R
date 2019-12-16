@@ -1,0 +1,7 @@
+NEI <- readRDS("summarySCC_PM25.rds")
+balti <- subset(NEI, fips == "24510")
+totals <- with(balti, tapply(Emissions, year, sum))
+png(file = "plot2.png")
+plot(names(totals), totals, xlab = "Year", ylab = "Total PM2.5 emissions (tons)", main = "Total PM2.5 emissions in Baltimore City (1999 - 2008)", pch = 19)
+lines(names(totals), totals)
+dev.off()

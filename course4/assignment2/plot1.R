@@ -1,0 +1,6 @@
+NEI <- readRDS("summarySCC_PM25.rds")
+totals <- with(NEI, tapply(Emissions, year, sum))
+png(file = "plot1.png")
+plot(names(totals), totals, xlab = "Year", ylab = "Total PM2.5 emissions (tons)", main = "Total PM2.5 emissions in the US (1999 - 2008)", pch = 19)
+lines(names(totals), totals)
+dev.off()

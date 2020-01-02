@@ -1,0 +1,183 @@
+---
+title: "A data analysis on the most harmful and economically costly weather events in the United States"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+The analysis in this document was conducted to address two main questions:
+
+1. Across the United States, which types of events are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+Data on severe weather events from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database contain estimates for characteristics associated with each recorded event including event type, fatalities, injuries, crop (agricultural) damage and property damage. The fatality and injury numbers were used as metrics to answer the first question while the crop and property damage estimates were used to answer the second question.
+
+A decision was made to only include data from 1996 onwards, when the event type characteristic was standardised to 48 different weather events. The data was processed using R version 3.6.1 to remove insignificant information and fix some inconsistencies in the naming of event types. The total fatalities, injuries, crop damage and property damage for each event type were then calculated and formatted to allow for easy plotting. Two separate figures (panel plots) were created to display the top 5 weather events by the metrics used to indicate harm to population health and economic expenses.
+
+## Data Processing
+
+### Load libraries and files
+
+The following code chunk loads into R the libraries used in this data analysis. It also downloads and loads an R package that allows for reordering bars within barplots in separate facets of plots created by the ggplot2 package.
+
+```{r}
+library(data.table)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+if(!file.exists("reorder_within.R")) {
+        url <- "https://raw.githubusercontent.com/dgrtwo/drlib/master/R/reorder_within.R"
+        download.file(url, destfile = "reorder_within.R", method = "curl")
+} # download R package that allows for reordering bars within facets in ggplot
+source("reorder_within.R") # source the R package
+```
+
+### Import data
+
+The following code chunk downloads the file if it doesn't exist in the working directory then reads it into R as a dataframe.
+
+```{r, cache = TRUE}
+if(!file.exists("repdata_data_StormData.csv.bz2")) {
+        url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+        download.file(url, destfile = "repdata_data_StormData.csv.bz2", method = "curl")
+} # download data source file if it doesn't exist in current working directory
+data <- fread("repdata_data_StormData.csv.bz2") # import data
+```
+
+### Initial processing
+
+The following code chunk first performs an initial cleaning on the imported dataframe then creates 4 new dataframes to separately treat fatalities, injuries, crop damage and property damage. Within the initial cleaning, only weather events from 1996 onwards are included. Prior to this the NOAA only recorded Tornado or Tornado, Thunderstorm Wind and Hail events (https://www.ncdc.noaa.gov/stormevents/details.jsp?type=eventtype). Events prior to 1996 were excluded as they would have skewed results towards these when the remaining of the 48 now standardised event types weren't yet being recorded. Insignificant event types were also dropped to reduce the size of the data. Here, insignificant is defined by the context of the 2 previously mentioned questions and so refers to events that resulted in no fatalities, injuries, crop damage or property damage. Also within the initial cleaning is the renaming or reformatting of event types so that event types with character strings that deviate from the standardised names are fixed. Only some inconsistencies were able to fixed with reasonable amount of effort, there were still many inconsistencies remaining after this point which later become quite insignificant once the next step of treating the metrics separately was applied.
+
+The later part of this code chunk obtains from the initially cleaned data 4 new dataframes (corresponding to fatalities, injuries, crop damage and property damage) for separate treatment. By doing this, each dataframe (defined by having non-zero values in its corresponding metric) are whittled down to the point where the number of unique event types are close to 48, that is, the number of erroneous event type classifications are quite low. Upon summing up the values for each event type, inspection of each of these dataframes show the summed value of the metric for these erroneous event types are low enough to have no effect on our ability to identify the top contributors and hence answer our 2 original questions.
+
+```{r, cache = TRUE}
+data <- data %>% # rough initial cleaning before treating fatalities, injuries, crop damage and property damage separately
+        mutate(BGN_DATE = as.Date(str_extract(BGN_DATE, "^[^ ]+"), "%m/%d/%Y")) %>% # convert date strings to date format
+        select(BGN_DATE, EVTYPE, FATALITIES, INJURIES, CROPDMG, CROPDMGEXP, PROPDMG, PROPDMGEXP, REMARKS) %>% # select relevant columns
+        filter(year(BGN_DATE) >= 1996 & (FATALITIES != "0" | INJURIES != "0" | (CROPDMG != "0" & CROPDMGEXP != "") | (PROPDMG != "0" & PROPDMGEXP != ""))) %>% # select data from 1996 onwards, when there were 48 standardised event types
+        mutate(EVTYPE = toupper(EVTYPE)) %>% # convert event types to uppercase
+        mutate(EVTYPE = gsub("-", " ", EVTYPE)) %>% # convert hyphens to spaces
+        mutate(EVTYPE = gsub("^ +", "", EVTYPE)) %>% # remove spaces at beginning
+        mutate(EVTYPE = gsub("  +", " ", EVTYPE)) %>% # convert multiple spaces to single space
+        mutate(EVTYPE = gsub("IES$", "Y", EVTYPE)) %>% # convert plural ending with IES to singular
+        mutate(EVTYPE = gsub("S$", "", EVTYPE)) %>% # convert plural ending with S to singular
+        mutate(EVTYPE = gsub("COASTALSTORM", "COASTAL STORM", EVTYPE)) %>% # add missing spaces
+        mutate(EVTYPE = gsub("CSTL", "COASTAL", EVTYPE)) %>% # extend out abbreviations
+        mutate(EVTYPE = gsub("FLD", "FLOOD", EVTYPE)) %>% # extend out abbreviations
+        mutate(EVTYPE = gsub("FLOODING", "FLOOD", EVTYPE)) %>% # standardise synonyms
+        mutate(EVTYPE = gsub("HVY", "HEAVY", EVTYPE)) %>% # extend out abbreviations
+        mutate(EVTYPE = gsub("PRECIP$", "PRECIPITATION", EVTYPE)) %>% # extend out abbreviations
+        mutate(EVTYPE = gsub("SML", "SMALL", EVTYPE)) %>% # extend out abbreviations
+        mutate(EVTYPE = gsub("TSTM", "THUNDERSTORM", EVTYPE)) %>% # extend out abbreviations
+        mutate(EVTYPE = gsub("UNSEASONABLE", "UNSEASONABLY", EVTYPE)) %>% # standardise synonyms
+        mutate(EVTYPE = gsub("WINDCHILL", "WIND CHILL", EVTYPE)) %>% # change for consistency
+        mutate(EVTYPE = gsub("WINTRY", "WINTERY", EVTYPE)) %>% # change for consistency
+        mutate(EVTYPE = gsub("(.*)COAST(.*)", "COASTAL FLOOD", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^COLD(.*)", "COLD/WIND CHILL", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^EXTREME(.*)", "EXTREME COLD/WIND CHILL", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("(.*)FLASH(.*)", "FLASH FLOOD", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("(.*)SURF(.*)", "HIGH SURF", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^HIGH WIND(.*)", "HIGH WIND", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("(.*)HURRICANE(.*)|(.*)TYPHOON(.*)", "HURRICANE/TYPHOON", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^IC(.*)ROAD$", "FROST/FREEZE", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^THUNDERSTORM WIND(.*)", "THUNDERSTORM WIND", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^STORM SURGE(.*)", "STORM SURGE/TIDE", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^WIND(.*)", "STRONG WIND", EVTYPE)) %>% # group together differently named event types
+        mutate(EVTYPE = gsub("^WINTER WEATHER(.*)", "WINTER WEATHER", EVTYPE)) # group together differently named event types
+
+data_fatalities <- data %>% # processing fatalities data
+        filter(FATALITIES != "0") %>% # select only rows which have injuries
+        group_by(EVTYPE) %>% # group by event type
+        summarise(FATALITIES = sum(FATALITIES)) %>% # calculate total fatalities for each event type
+        arrange(desc(FATALITIES)) # arrange in descending order by total fatalities
+
+data_injuries <- data %>% # processing injuries data
+        filter(INJURIES != "0") %>% # only select rows which have injuries
+        group_by(EVTYPE) %>% # group by event type
+        summarise(INJURIES = sum(INJURIES)) %>% # calculate total injuries for each event type
+        arrange(desc(INJURIES)) # arrange in descending order by total injuries
+
+data_cropdmg <- data %>% # processing crop damage data
+        filter(CROPDMG != "0" & CROPDMGEXP != "") %>% # only select rows which have crop damage
+        mutate(CROPDMGEXP = sub("K", 0.000001, CROPDMGEXP)) %>% # convert character to multiplier (in billions)
+        mutate(CROPDMGEXP = sub("M", 0.001, CROPDMGEXP)) %>% # convert character to multiplier (in billions)
+        mutate(CROPDMGEXP = sub("B", 1, CROPDMGEXP)) %>% # convert character to multiplier (in billions)
+        group_by(EVTYPE) %>% # group by event type
+        summarise(CROP = sum(CROPDMG * as.numeric(CROPDMGEXP))) %>% # calculate total crop damage for each event type
+        arrange(desc(CROP)) # arrange in descending order by total crop damage
+
+data_propdmg <- data %>% # processing crop damage data
+        filter(PROPDMG != "0" & PROPDMGEXP != "") %>% # only select rows which have crop damage
+        mutate(PROPDMGEXP = sub("K", 0.000001, PROPDMGEXP)) %>% # convert character to multiplier (in billions)
+        mutate(PROPDMGEXP = sub("M", 0.001, PROPDMGEXP)) %>% # convert character to multiplier (in billions)
+        mutate(PROPDMGEXP = sub("B", 1, PROPDMGEXP)) %>% # convert character to multiplier (in billions)
+        group_by(EVTYPE) %>% # group by event type
+        summarise(PROPERTY = sum(PROPDMG * as.numeric(PROPDMGEXP))) %>% # calculate total crop damage for each event type
+        arrange(desc(PROPERTY)) # arrange in descending order by total property damage
+```
+
+### Formatting the data for plotting
+
+The following code chunk merges the fatalities and injuries dataframes obtained in the previous step to a single dataframe representing our first question of events harmful to population health, and merges the crop and property damage dataframes to a single dataframe representing our second question of economically costly events. This step is just to format the data in a way that the ggplot2 plotting system is able to easily produce the desired graphs.
+
+```{r}
+data_harm <- merge(data_fatalities, data_injuries, all = TRUE) %>% # merge fatalities and injuries data (full outer join)
+        pivot_longer(-EVTYPE, names_to = "CONDITION", values_to = "COUNT") %>% # convert data to long format for ggplot
+        arrange(CONDITION, desc(COUNT)) %>% # arrange data to see top counts
+        filter((CONDITION == "FATALITIES" & COUNT > 500) | (CONDITION == "INJURIES" & COUNT > 4000)) # only select top 5 counts for each condition
+
+data_cost <- merge(data_cropdmg, data_propdmg, all = TRUE) %>% # merge crop damage and property damage data (full outer join)
+        rowwise() %>% # rowwise function for next step
+        mutate(TOTAL = sum(CROP, PROPERTY, na.rm = TRUE)) %>% # create column containing total damage for each event type
+        pivot_longer(-EVTYPE, names_to = "DAMAGE", values_to = "COST") %>% # convert data to long format for ggplot
+        arrange(DAMAGE, desc(COST)) %>% # arrange data to see top costs
+        filter((DAMAGE == "CROP" & COST > 1.330) | (DAMAGE == "PROPERTY" & COST > 15) | (DAMAGE == "TOTAL" & COST > 17)) # only select top 5 costs for each damage category
+```
+
+## Results
+
+### Most harmful events for population health
+
+The following code chunk creates a panel plot that addresses our first question pertaining to which event types are most harmful to population health. It is important to consider fatalities and injuries separately as they represent different issues and are most commonly caused by different types of events. There are 2 plots in the figure below. The plot on the left and right hand panels respectively display the number of fatalities and injuries caused by different event types.
+
+Going by fatalities, it can be seen that the most harmful event types are:
+
+1. Excessive Heat
+2. Tornado
+3. Flash Flood
+4. Lightning
+5. Rip Current
+
+Whereas going by injuries, the most harmful event types would be:
+
+1. Tornado
+2. Flood
+3. Excessive Heat
+4. Thunderstorm Wind
+5. Lightning
+
+```{r}
+ggplot(data_harm, aes(reorder_within(EVTYPE, -COUNT, CONDITION), COUNT)) + geom_col() + scale_x_reordered() + facet_wrap(. ~ CONDITION, scales = "free_x") + theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1, vjust = 1)) + labs(x = "Event type", y = "Number of occurrences", title = "Top 5 harmful weather events by fatalities and injuries (1996 - 2011)")
+```
+
+### Events with greatest economic consequences
+
+The following code chunk creates a panel plot to answer our second question regarding economic expense. The figure is split into 3 panels: the left hand panel displays the 5 event types which cause the greatest crop (agricultural) damage, the middle panel displays property damage and the right hand panel displays total damage (by summing crop and property damage). Although property damage expenses tend to far exceed crop damage, it is important to at least identify those events specific to each case so appropriate countermeasures can be made for different groups of people. For example, it is important to recognise that droughts are by far the event that affect farmers most and so planning directed towards farmers should take this into consideration.
+
+Going by total damage though, the most costly events are:
+
+1. Flood
+2. Hurricane/Typhoon
+3. Storm Surge/Tide
+4. Tornado
+5. Hail
+
+```{r, fig.width = 9}
+ggplot(data_cost, aes(reorder_within(EVTYPE, -COST, DAMAGE), COST)) + geom_col() + scale_x_reordered() + facet_wrap(. ~ DAMAGE, scales = "free_x") + theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1, vjust = 1)) + labs(x = "Event type", y = "Cost (in billions of dollars)", title = "Top 5 costly weather events by crop, property and total damage expenses (1996 - 2011)")
+```

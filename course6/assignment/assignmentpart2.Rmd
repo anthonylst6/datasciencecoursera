@@ -2,8 +2,8 @@
 title: "Basic Inferential Data Analysis on ToothGrowth Dataset"
 author: "Anthony Liu"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}

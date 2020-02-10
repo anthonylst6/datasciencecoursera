@@ -1,0 +1,154 @@
+---
+title: Creating a machine learning algorithm to detect mistakes in form of unilateral dumbbell bicep curls using sensor data
+author: "Anthony Liu"
+date: "2/5/2020"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+In this document we explain the steps in creating a machine learning algorithm (using R 3.6.2) designed to assess how well an exercise is being performed. Using sensor data, we trained a random forest model to reliably predict whether unilateral dumbbell bicep curls were being performed "properly" (as prescribed by a specification). The data used in training our model was from an experiment by Velloso et al. in their paper *Qualitative Activity Recognition of Weight Lifting Exercises*. The experiment consisted of 6 participants who each performed dumbell bicep curls in 5 different ways (one of which was "proper" and the remaining four being common mistakes). Sensors were placed in the glove (just above wrist), armband (bicep), belt (waist) and dumbell. Our random forest model was able to predict with over 99% accuracy which of the 5 ways a participant was performing the dumbell lifts. In creating such an algorithm we first begin with some exploratory data analysis to understand the sensor data and know what to consider further along in our analysis and model building. We then proceed to clean and preprocess our data before building multiple models to choose from.
+
+## Creating the algorithm
+
+The following code chunk downloads the experimental data and reads it into R along with any libraries that will be necessary for our analysis. Note here that we load and define two datasets: `training` and `testing`. The names are slightly misleading because we actually use the `testing` dataset (which only has 20 observations) as a validation set to evaluate our overall model after building it using a train and test set. Later on we will divide the `training` dataset into a `train` and `test` set, where the `train` set will be used to train our model and the `test` set is used provide feedback to the trained model so we can optimise it if necessary. But by doing this we have used information within the `test` set to guide us to the creation of our final model so the `test` set may no longer be a reliable indicator of out-of-sample accuracy. In this sense, we effectively have a train-test-validation split where our `training` dataset contains the train-test data and our `testing` dataset is our validation set.
+
+```{r}
+# Download training and testing sets
+if(!file.exists("pml-training.csv")) {
+        fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+        download.file(fileURL, destfile = "pml-training.csv")
+}
+if(!file.exists("pml-testing.csv")) {
+        fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+        download.file(fileURL, destfile = "pml-testing.csv")
+}
+
+# Load libraries and data
+library(caret)
+library(parallel)
+library(doParallel)
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+
+### Exploratory data analysis
+
+In the following code chunk we look at the dimensions of the training data and preview its contents. We observe that many columns contain empty values and/or NAs which may introduce difficulties if we attempt to use these columns as predictors when building a model. We make the decision here to remove these columns since they won't make any meaningful contribution to our model. We tentatively expect that the large number of observations (rows) will still allow us to make accurate predictions with a reduced number of predictors. This tentative expectation is later verified when we build our random forest model but even in the case it weren't we could have attempted to include these columns and impute values into them based on the relation of these physical quantities with other physical quantities which we do have data on. We also observe that the first 7 columns of the dataset is not sensor data and so is irrelevant to our analysis.
+
+```{r}
+# Exploratory data analysis
+dim(training)
+str(training)
+```
+
+### Cleaning data
+
+Here we perform the data cleaning based on the observations in our exploratory data analysis. We use the first row of the `training` dataset to indicate whether a column is missing a value (either in the form of an empty entry or an NA entry). That is, we look at which columns in the first row are empty or NA and assume these columns are also empty or NA for all remaining rows. In general, this may not be a valid procedure for a given dataset, but in the case of our `training` dataset this actually happens to be a very reliable generalisation due to the structural nature of missing values in this dataset. We also remove the first 7 columns of the data set which are irrelevant. We repeat the same cleaning on the `testing` dataset so that it is in the correct form to use when we later perform prediction. We observe that there are only 53 columns remaining after cleaning.
+
+```{r}
+# Clean data
+nonNA <- !is.na(training[1, ]) # indexing columns with NAs
+training <- training[, nonNA] # remove columns with NAs
+nonEmpty <- !training[1, ] == "" # indexing columns with empty values
+training <- training[, nonEmpty] # remove columns with empty values
+training <- subset(training, select = -(1:7)) # remove columns irrelevant for prediction
+testing <- testing[, nonNA] # remove columns with NAs
+testing <- testing[, nonEmpty] # remove columns with empty values
+testing <- subset(testing, select = -(1:7)) # remove columns irrelevant for prediction
+dim(training) # check dimensions of cleaned dataset
+```
+
+### Train-test split of data
+
+Here we perform a train-test split on our `training` dataset based on the `classe` variable which indicates which way the participant is performing the dumbell lift. Note that at this step we could have instead chosen to do a train-test-validation split if we wished to get a more reliable estimate of the out-of-sample accuracy of our eventual model. We previously noted that the `testing` set was in effect being used for evaluation of our eventual model but that is an evaluation based on attempting to make 20 correct predictions and not necessarily trying to quantify the actual model accuracy rate. If we wished to quantify the out-of-sample accuracy of our eventual model we could elect to do a train-test-validation split here. Nevertheless we choose the simpler option as we later find it suffices all our needs in this analysis. The `training` dataset is divided into a `train` set containing 70% of the observations and a `test` set containing 30% of the observations.
+
+```{r}
+# Further divide up training set into train and test sets
+set.seed(1)
+inTrain <- createDataPartition(training$classe, p = 0.7, list = FALSE)
+train <- training[inTrain, ]
+test <- training[-inTrain, ]
+```
+
+### Preprocessing
+
+Here we perform preprocessing on our data. We standardise values by centering and scaling the `train` dataset so that it has mean 0 and standard deviation 1. We perform the same transformation on the `test` and `testing` datasets using the same centering and scaling parameters defined for `train` (as opposed to centering and scaling each individual dataset based on their own values) for later use in model evaluation and prediction. We will build multiple models in the next step using our data and some of these algorithms require our data to be appropriately scaled. Within our preprocessing step we could have also chosen to perform a principal components analysis to further reduce the number of columns. This would make our data analysis and model building faster while also potentially lead to greater out-of-sample accuracy. We proceed without doing this and find that our eventual model's accuracy and speed suffices but if it didn't we could have explored this option.
+
+```{r}
+# Standardise values
+standardObj <- preProcess(train[, -53], method = c("center", "scale"))
+train[, 1:52] <- predict(standardObj, train[, -53])
+test[, 1:52] <- predict(standardObj, test[, -53])
+testing[, 1:52] <- predict(standardObj, testing[, -53])
+```
+
+### Model building
+
+In this step we build multiple models using different algorithms then select the best one. We choose to use **5-fold cross validation** as our resampling method while training our algorithms on the `train` dataset. By using cross validation, this allows our training algorithm to build multiple models of the same type and compare them to optimise the flexibility of the final model by tuning relevant parameters. We also use parallel processing to speed up the computation of our models. We build 6 models using different algorithms: linear discriminant analysis, decision tree, k-nearest neighbours, support vector machine, gradient boosting machine and random forest. For comparison, we print the accuracy of each model when predicting on the `test` set.
+
+```{r, cache = TRUE}
+# Configure parallel processing
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+# Configure 5-fold cross validation resampling
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+# Model 1: Linear discriminant analysis
+lda <- train(classe ~ ., method = "lda", data = train, trControl = fitControl)
+pred_lda <- predict(lda, test)
+mean(pred_lda == test$classe)
+
+# Model 2: Decision tree
+tree <- train(classe ~ ., method = "rpart", data = train, trControl = fitControl)
+pred_tree <- predict(tree, test)
+mean(pred_tree == test$classe)
+
+# Model 3: K nearest neighbours
+knn <- train(classe ~ ., method = "knn", data = train, trControl = fitControl)
+pred_knn <- predict(knn, test)
+mean(pred_knn == test$classe)
+
+# Model 4: Support vector machine
+svm <- train(classe ~ ., method = "svmLinear", data = train, trControl = fitControl)
+pred_svm <- predict(svm, test)
+mean(pred_svm == test$classe)
+
+# Model 5: Gradient boosting machine
+gbm <- train(classe ~ ., method = "gbm", data = train, verbose = FALSE, trControl = fitControl)
+pred_gbm <- predict(gbm, test)
+mean(pred_gbm == test$classe)
+
+# Model 6: Random forest
+rf <- train(classe ~ ., method = "rf", data = train, trControl = fitControl)
+pred_rf <- predict(rf, test)
+mean(pred_rf == test$classe)
+
+# De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+### Final model
+
+We see that with an estimated **out-of-sample accuracy** of over 99%, our best model (in terms of predictive power) is the random forest model. We choose not to make further optimsations and so our `test` set was not used in guiding creation of the model. This makes the accuracy by prediction on our `test` set a reliable estimate of out-of-sample accuracy and justifies our previous decision to opt for a simple train-test split. Here we compute the confusion matrix of our random forest model predictions to obtain a more detailed breakdown of the model's accuracy. We also use our trained random forest model to predict the `classe` variable for the 20 observations in the `testing` dataset.
+
+```{r}
+confusionMatrix(pred_rf, test$classe)
+predict(rf, testing)
+```
+
+## Conclusion
+
+We managed to build a random forest model which can reliably predict the manner in which unilateral dumbell were being performed. This involved processing the raw data, performing a train-test split, using cross-validation for resampling and selecting from multiple algorithms. The end result yielded a model with an estimated out-of-sample accuracy of over 99%. We should note though, out-of-sample accuracy here refers to accuracy on new sensor data by one of the participants in the study. The overall dataset may be overly tuned to these 6 participants and accuracy on sensor data outside of these participants may be lower. There is reason to believe that predictions on participants outside of this study would still have high accuracy since the mechanics of dumbbell lifts which follow a prescription would be similar, but evidence is still required via an out-of-study evaluation of the algorithm. This analysis demonstrates that it is possible to accurately predict "proper" exercise form in a controlled setting. Further study and analysis is required to determine whether this holds in more general settings such as when prediction is performed on someone not used in the training set, when people are not directed to follow certain prescriptions, and when exercises involve more complex maneuvers.
+
+## References
+
+For more information on the original experiment which yielded the data, and for an interesting approach in using the Microsoft Kinect for unobtrusive activity measurement, refer to:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](https://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/work.jsf?p1=11201 "Qualitative Activity Recognition of Weight Lifting Exercises"). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.

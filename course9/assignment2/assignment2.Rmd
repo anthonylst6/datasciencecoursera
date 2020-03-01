@@ -1,0 +1,74 @@
+---
+title: "Solar Installation Rates and Socieoeconomic Status in Australia"
+author: "Anthony Liu"
+date: "2/26/2020"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+In this analysis we explore the relationship between solar installation rates and socioeconomic status of local government areas (LGAs) in Australia. To perform such an analysis, we first obtained data on relevant metrics from the Australian Photovoltatic Institute (APVI) and the Australian Bureau of Statistics (ABS). The metrics we use are:
+
+- "density" - the percentage of dwellings with solar installed in each LGA, this is our metric for solar installation rates
+- "SEIFA index score" - an index score created by the ABS where higher scores indiciate socioeconomic advantage, there are four types of SEIFA index: IEO (Index of Education and Occupation), IER (Index of Economic Resources), IRSAD (Index of Relative Socio-Economic Advantage and Disadvantage) and IRSD (Index of Relative Socio-Economic Disadvantage)
+
+## Results
+
+The following plot displays density with the SEIFA index score as a predictor, for each of the four SEIFA indices.
+
+```{r}
+# Load necessary libraries
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(dplyr))
+library(tidyr)
+
+# Download data if it doesn't exist
+if(!file.exists("lgas_41d2.csv")) {
+        url <- "https://d284f79vx7w9nf.cloudfront.net/attachments/analysis/13/lgas_41d2.csv"
+        download.file(url, destfile = "lgas_41d2.csv")
+}
+if(!file.exists("ABS_SEIFA2016_LGA_19022020125819856 (seifa).csv")) {
+        url <- "http://stat.data.abs.gov.au/Download.ashx?type=csv&Delimiter=%2c&IncludeTimeSeriesIdentifiers=False&LabelType=CodeAndLabel&LanguageCode=en"
+        download.file(url, destfile = "ABS_SEIFA2016_LGA_19022020125819856 (seifa).csv")
+}
+
+# Load data
+pv <- read.csv("lgas_41d2.csv")
+seifa <- read.csv("ABS_SEIFA2016_LGA_19022020125819856 (seifa).csv")
+
+# Create dataframe for plotting
+seifa <- seifa %>%
+        filter(SEIFA_MEASURE == "SCORE") %>%
+        select(LGA = Local.Government.Areas...2016, SEIFAINDEXTYPE, Score = Value) %>%
+        pivot_wider(names_from = SEIFAINDEXTYPE, values_from = Score)
+pv <- pv %>%
+        select(LGA = lga_name, Density = density_lga)
+df <- merge(pv, seifa, by = "LGA") %>%
+        pivot_longer(IEO:IRSD, names_to = "Index", values_to = "Score") %>%
+        na.omit()
+
+# Make plot
+g <- ggplot(df, aes(x = Score, y = Density, z = LGA)) + facet_wrap(. ~ Index) + 
+        geom_point(alpha = 0.4) + geom_smooth(mapping = aes(x = Score, y = Density), formula = y ~ x, method = "loess", inherit.aes = FALSE)
+ggplotly(g)
+```
+
+## Discussion
+
+We observe that the average density seems to increase then decrease with increasing socioeconomic advantage. We refrain from making any causal inferences or assumptions without a more in depth analysis controlling for other variables. Also note that the SEIFA index scores are ordinal measures so for example, an area with score 1000 is not necessarily twice as advantaged as an area with score 500.
+
+For more information, see the ABS website:
+
+https://www.abs.gov.au/websitedbs/censushome.nsf/home/seifa
+
+## References
+
+Data for the analysis was obtained from the following sources:
+
+- Australian PV Institute (APVI) Solar Map, funded by the Australian Renewable Energy Agency, accessed from pv-map.apvi.org.au on 26 February 2020. Dataset can be downloaded from https://pv-map.apvi.org.au/historical#4/-26.67/134.12
+
+- Australian Bureau of Statistics 2020, ‘SEIFA 2016 by Local Government Area (LGA)’, viewed 26 February 2020, http://stat.data.abs.gov.au.

@@ -1,0 +1,12 @@
+name: application
+title:
+username:
+account: anthonylst6
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1876704
+bundleId: 2836364
+url: https://anthonylst6.shinyapps.io/application/
+when: 1582862593.37749
+asMultiple: FALSE
+asStatic: FALSE

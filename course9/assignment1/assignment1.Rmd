@@ -1,0 +1,60 @@
+---
+title: "Solar Installations across Australia"
+author: "Anthony Liu"
+date: "2/23/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+# Download data on solar installations and postcodes if it doesn't exist
+if(!file.exists("postcodes_1618.csv")) {
+        url <- "https://d284f79vx7w9nf.cloudfront.net/attachments/analysis/5/postcodes_1618.csv"
+        download.file(url, destfile = "postcodes_1618.csv")
+}
+if(!file.exists("australian_postcodes.csv")) {
+        url <- "https://www.matthewproctor.com/Content/postcodes/australian_postcodes.csv"
+        download.file(url, destfile = "australian_postcodes.csv")
+}
+
+# Load necessary libraries
+library(leaflet)
+suppressPackageStartupMessages(library(dplyr))
+
+# Read data into R
+pv <- read.csv("postcodes_1618.csv")
+post <- read.csv("australian_postcodes.csv")
+
+# Preprocess data
+pv <- pv %>%
+        select(postcode, instals) %>%
+        na.omit()
+post <- post %>%
+        na.omit() %>%
+        filter((lat != 0) | (long != 0)) %>%
+        group_by(postcode) %>%
+        summarise(lng = mean(long), lat = mean(lat))
+df <- merge(pv, post, by = 'postcode')
+```
+
+The interactive map below displays the number of solar installations in each postal area (as defined by its postcode) in Australia. The opacity of each circle is proportional to the number of installations in that postal area. When zoomed out such that multiple circles are overlapping, darker shades of blue can be interpreted as regions with relatively high density of solar installation. Here we use density in the sense of number of installations per unit area, as opposed to percentage of households with installations.
+
+```{r}
+# Create map
+map <- leaflet() %>%
+        addTiles() %>%
+        addCircleMarkers(lng = df$lng, lat = df$lat, weight = 1,
+                         radius = 5, opacity = 0.2,
+                         fillOpacity = df$instals / max(df$instals),
+                         popup = paste0("Postcode: ", df$postcode, ", ", "Installations: ", df$instals))
+map
+```
+
+**Data**
+
+1. Australian PV Institute (APVI) Solar Map, funded by the Australian Renewable Energy Agency, accessed from pv-map.apvi.org.au on 23 February 2020. Data on installation numbers in each postcode was obtained from this source. The analysis from which the data was obtained also created a visualisation of density but the visualisation created was a chloropleth map and the definition of density used was percentage of households with installed solar. The analysis is available here: https://pv-map.apvi.org.au/historical#4/-26.67/134.12
+
+2. Proctor, M. (2020), *Australian Post Codes - Matthew Proctor*, viewed 23 February 2020, \<https://www.matthewproctor.com/australian_postcodes>. Data on geographical coordinates for each postcode was obtained from this source.
